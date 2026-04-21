@@ -7,7 +7,8 @@ import { RecordType, TabInfo } from "./types";
 import { dbRecords, dbContents } from "./db";
 import { getLangCode, syncTabRecordState } from "./session";
 import { getTabInfo } from "./utils";
-import { getOpenAiApiKey, NonWorkingApiKeyError } from "./openaiApiKey";
+import { NoApiKeyError, NonWorkingApiKeyError } from "./openaiApiKey";
+import { getWhisperSettings } from "./whisperSettings";
 
 const audioCtx = new AudioContext();
 
@@ -106,8 +107,20 @@ export async function recordMeeper(
   };
 
   const onAudio = async (audioFile: File) => {
-    const apiKey = await getOpenAiApiKey().catch(onError);
-    if (!apiKey) {
+    const whisperSettings = await getWhisperSettings().catch(async (err) => {
+      onError(err);
+
+      if (err instanceof NoApiKeyError) {
+        await dbRecords.update(recordId, { lastSyncAt: Date.now() });
+      }
+
+      return null;
+    });
+    if (!whisperSettings) return;
+
+    const apiKey = whisperSettings?.apiKey;
+
+    if (whisperSettings.provider === "openai" && !apiKey) {
       await dbRecords.update(recordId, { lastSyncAt: Date.now() });
       return;
     }
@@ -120,6 +133,7 @@ export async function recordMeeper(
     const textPromise = retry(
       () =>
         requestWhisperOpenaiApi(audioFile, "transcriptions", {
+          baseUrl: whisperSettings.baseUrl,
           apiKey,
           prompt: whisperPrompt,
           language: savedLanguage !== "auto" ? savedLanguage : undefined,

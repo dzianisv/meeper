@@ -1,6 +1,5 @@
 import axios, { RawAxiosRequestHeaders } from "axios";
-
-const whisperApiEndpoint = "https://api.openai.com/v1/audio/";
+import { normalizeWhisperBaseUrl } from "./baseUrl";
 
 export async function requestWhisperOpenaiApi(
   file: File,
@@ -31,7 +30,9 @@ export async function requestWhisperOpenaiApi(
     headers["Authorization"] = `Bearer ${opts.apiKey}`;
   }
 
-  const response = await axios.post(whisperApiEndpoint + mode, body, {
+  const baseUrl = normalizeWhisperBaseUrl(opts.baseUrl);
+
+  const response = await axios.post(`${baseUrl}/audio/${mode}`, body, {
     headers,
     timeout: 30_000,
   });

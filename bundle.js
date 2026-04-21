@@ -92,7 +92,9 @@ const entryPoints = [
         setup(build) {
           build.onEnd((result) => {
             if (result.errors.length === 0) {
-              fs.mkdirSync(path.join(process.cwd(), "dist"));
+              fs.mkdirSync(path.join(process.cwd(), "dist"), {
+                recursive: true,
+              });
 
               return zip(
                 path.join(process.cwd(), "ext"),
