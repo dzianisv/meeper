@@ -17,16 +17,61 @@ export async function retry<T>(
 
 // It simply doesn't allow the provided function to be executed in parallel.
 export function promiseQueue() {
-  let worker: Promise<unknown> | null = null;
+  let worker: Promise<unknown> = Promise.resolve();
 
   return <T>(factory: () => Promise<T>) => {
-    if (!worker) {
-      worker = factory().finally(() => {
-        worker = null;
-      });
+    const task = worker.then(factory, factory);
+    worker = task.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return task;
+  };
+}
+
+export function createPendingOperationsTracker() {
+  let pendingCount = 0;
+  const waiters = new Set<() => void>();
+
+  const notifyIfIdle = () => {
+    if (pendingCount !== 0) {
+      return;
     }
 
-    return worker as Promise<T>;
+    waiters.forEach((resolve) => resolve());
+    waiters.clear();
+  };
+
+  return {
+    begin() {
+      pendingCount += 1;
+      let ended = false;
+
+      return () => {
+        if (ended) {
+          return;
+        }
+
+        ended = true;
+        pendingCount = Math.max(0, pendingCount - 1);
+        notifyIfIdle();
+      };
+    },
+
+    waitForIdle() {
+      if (pendingCount === 0) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        waiters.add(resolve);
+      });
+    },
+
+    getPendingCount() {
+      return pendingCount;
+    },
   };
 }
 

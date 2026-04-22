@@ -34,19 +34,18 @@ export default function SettingsPage() {
       </div>
 
       <article className="my-8 w-full prose prose-slate">
-        <h2>OpenAI API Key</h2>
+        <h2>Whisper Configuration</h2>
 
         <p>
-          Your API Key is stored locally on your browser and never sent anywhere
-          else.
+          Configure your provider, base URL, and API key. Stored locally.
         </p>
 
         <div className="flex items-center">
           <Button type="button" onClick={() => openApiKeyDialog()}>
-            {!apiKeyEntered ? "Enter API Key" : "Edit API Key"}
+            {!apiKeyEntered ? "Configure Whisper" : "Edit Configuration"}
           </Button>
 
-          {apiKeyEntered && <div className="ml-4">✅ Entered.</div>}
+          {apiKeyEntered && <div className="ml-4">✅ Configured.</div>}
         </div>
 
         {WEBSITE_URL && (

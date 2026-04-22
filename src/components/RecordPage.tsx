@@ -28,6 +28,8 @@ export default function RecordPage({
     recording = false,
     content = [],
     recordType = initialRecordType,
+    pendingTranscriptions = 0,
+    lastError = null,
   } = meeperState ?? {};
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -37,6 +39,8 @@ export default function RecordPage({
   }, [content.length]);
 
   useEffect(() => {
+    const getE2EHooks = () => (globalThis as any).__MEEPER_E2E__;
+
     if (
       !tabId ||
       !initialRecordType ||
@@ -50,23 +54,64 @@ export default function RecordPage({
       noApiKeyToast(err);
     };
 
-    recordMeeper(tabId, initialRecordType, setMeeperState, onError)
-      .then((meeper) => {
-        meeperRef.current = meeper;
-      })
+    const setupAndStart = async () => {
+      const e2eBeforeStartHooks = getE2EHooks();
+      if (typeof e2eBeforeStartHooks?.beforeStart === "function") {
+        await e2eBeforeStartHooks.beforeStart();
+      }
+
+      const meeper = await recordMeeper(
+        tabId,
+        initialRecordType,
+        setMeeperState,
+        onError,
+      );
+
+      meeperRef.current = meeper;
+
+      const e2eReadyHooks = getE2EHooks();
+      if (e2eReadyHooks) {
+        e2eReadyHooks.ready = true;
+        e2eReadyHooks.stop = () => {
+          meeper.stop();
+        };
+      }
+    };
+
+    setupAndStart()
       .catch((err) => {
         console.error(err);
         setFatalError(err);
       });
-  }, [tabId, initialRecordType, setMeeperState, setFatalError, noApiKeyToast]);
+  }, [
+    tabId,
+    initialRecordType,
+    setMeeperState,
+    setFatalError,
+    noApiKeyToast,
+  ]);
 
   useEffect(() => {
+    if ((globalThis as any).__MEEPER_E2E__) {
+      (globalThis as any).__MEEPER_E2E__.state = {
+        recording,
+        content,
+        pendingTranscriptions,
+        lastError,
+        isActive,
+      };
+    }
+  }, [recording, content, pendingTranscriptions, lastError, isActive]);
+
+  useEffect(() => {
+    const keepOpenForE2E = Boolean((globalThis as any).__MEEPER_E2E__?.keepOpen);
+
     // Handle stop
-    if (meeper && !isActive) {
+    if (meeper && !isActive && pendingTranscriptions === 0 && !keepOpenForE2E) {
       setClosing(true);
       setTimeout(() => window.close(), 1_500);
     }
-  }, [meeper, isActive]);
+  }, [meeper, isActive, pendingTranscriptions]);
 
   useEffect(() => meeperRef.current?.stop, []);
 
@@ -102,6 +147,8 @@ export default function RecordPage({
         meeper={meeper}
         recordType={recordType}
         recording={recording}
+        pendingTranscriptions={pendingTranscriptions}
+        lastError={lastError}
       />
 
       <main

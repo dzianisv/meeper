@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Typecheck and build extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Check TypeScript
+        run: npm run ts
+
+      - name: Run queue behavior test
+        run: npm run test:queue
+
+      - name: Create app build
+        run: npm run build
+
+      - name: Run extension smoke test
+        run: xvfb-run -a npm run test:extension:load
+
+      - name: Upload extension zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: dist/*.zip
+          if-no-files-found: error
+
+  transcription-e2e:
+    name: Transcription E2E (local faster-whisper)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install python deps for local ASR server
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install fastapi uvicorn python-multipart faster-whisper
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Create app build
+        run: npm run build
+
+      - name: Run full transcription e2e against local server
+        env:
+          MEEPER_E2E_REQUIRE_REAL_FW: "1"
+        run: npm run test:e2e:transcription

@@ -1,5 +1,5 @@
 import memoizeOne from "memoize-one";
-import { Configuration, OpenAIApi } from "openai";
+import OpenAI from "openai";
 import { decrypt, encrypt } from "../lib/encryption";
 import { retry } from "../lib/system";
 
@@ -37,8 +37,11 @@ export async function setOpenAiApiKey(apiKey: string | null) {
 
 export async function validateApiKey(apiKey: string) {
   try {
-    const openai = new OpenAIApi(new Configuration({ apiKey }));
-    await retry(() => openai.listModels(), 0, 2);
+    const openai = new OpenAI({
+      apiKey,
+      dangerouslyAllowBrowser: true,
+    });
+    await retry(() => openai.models.list(), 0, 2);
   } catch (err: any) {
     throw new InvalidApiKeyError(err?.message);
   }

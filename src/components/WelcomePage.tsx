@@ -40,16 +40,8 @@ export default function WelcomePage() {
           style={{ ["--tw-prose-counters"]: "var(--tw-prose-headings)" } as any}
         >
           <li>
-            Get your API key from{" "}
-            <a
-              className="text-blue-500 hover:underline"
-              target="_blank"
-              rel="noopener noreferrer"
-              href="https://platform.openai.com/account/api-keys"
-            >
-              Open AI dashboard
-            </a>
-            .
+            Choose your transcription provider (OpenAI Whisper, TypeWhisper API,
+            or a custom API endpoint).
           </li>
 
           <li>
@@ -60,7 +52,7 @@ export default function WelcomePage() {
                 disabled={apiKeyEntered}
                 className="disabled:opacity-50"
               >
-                Enter API Key
+                Configure Provider
               </Button>
 
               {apiKeyEntered && (

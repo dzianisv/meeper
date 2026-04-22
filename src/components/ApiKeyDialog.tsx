@@ -12,7 +12,7 @@ import {
   useRef,
 } from "react";
 import classNames from "clsx";
-import { AlertTriangleIcon, AlertCircleIcon, Loader2Icon } from "lucide-react";
+import { AlertTriangleIcon, Loader2Icon } from "lucide-react";
 import { Separator } from "@radix-ui/react-separator";
 import { Button } from "./ui/button";
 import {
@@ -31,10 +31,16 @@ import {
   InvalidApiKeyError,
   NoApiKeyError,
   NonWorkingApiKeyError,
-  getOpenAiApiKey,
-  setOpenAiApiKey,
   validateApiKey,
 } from "../core/openaiApiKey";
+import {
+  getWhisperProviderDefaultBaseUrl,
+  getWhisperSettings,
+  setWhisperSettings,
+  WhisperProviderMode,
+} from "../core/whisperSettings";
+import { isSafeWhisperBaseUrl } from "../lib/whisper/baseUrl";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -62,8 +68,12 @@ export function useApiKeyState() {
   );
 
   useEffect(() => {
-    getOpenAiApiKey()
-      .then(() => setApiKeyEntered(true))
+    getWhisperSettings()
+      .then((settings) => {
+        if (settings.provider !== "openai" || Boolean(settings.apiKey)) {
+          setApiKeyEntered(true);
+        }
+      })
       .catch(() => {});
   }, [setApiKeyEntered]);
 
@@ -115,13 +125,13 @@ export function useNoApiKeyToast() {
                   <span>API key not set or invalid!</span>
                 </div>
               ) as any,
-              description: "You have to set OpenAI API Key to use Meeper.",
+              description: "Configure your Whisper provider and credentials to start transcribing.",
               action: (
                 <ToastAction
-                  altText="Set OpenAI API Key"
+                  altText="Configure Whisper"
                   onClick={() => setApiKeyDialogOpened("default")}
                 >
-                  Set API Key
+                  Configure
                 </ToastAction>
               ),
             };
@@ -175,10 +185,15 @@ export function ApiKeyDialogProvider({ children }: PropsWithChildren) {
   const setOpened = ctxState[1];
 
   useEffect(() => {
-    getOpenAiApiKey().catch(() => {
+    getWhisperSettings().catch(() => {
       if (location.hash.includes("welcome")) return;
-
       setOpened("default");
+    }).then(settings => {
+      if (!settings) return;
+      if (settings.provider === "openai" && !settings.apiKey) {
+        if (location.hash.includes("welcome")) return;
+        setOpened("default");
+      }
     });
   }, []);
 
@@ -225,178 +240,159 @@ function ApiKeyDialogContent({
   const [processing, setProcessing] = useState(false);
   const { toast } = useToast();
 
-  const errorState = state === "error";
+  const [provider, setProvider] = useState<WhisperProviderMode>("openai");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(
+    getWhisperProviderDefaultBaseUrl("openai"),
+  );
+
+  useEffect(() => {
+    getWhisperSettings()
+      .then((settings) => {
+        setProvider(settings.provider);
+        setApiKey(settings.apiKey || "");
+        setBaseUrl(
+          settings.baseUrl || getWhisperProviderDefaultBaseUrl(settings.provider),
+        );
+      })
+      .catch((err) => {
+        setError(err?.message || "Failed to load Whisper settings.");
+      });
+  }, []);
+
+  const handleProviderChange = useCallback((nextProvider: WhisperProviderMode) => {
+    setProvider(nextProvider);
+    setBaseUrl(getWhisperProviderDefaultBaseUrl(nextProvider));
+    setError(null);
+  }, []);
 
   const handleSubmit = useCallback<FormEventHandler<HTMLFormElement>>(
     async (evt) => {
       evt.preventDefault();
 
-      const formFields = (evt.target as any).elements;
-      const apiKey = formFields.apikey.value;
-      if (!apiKey) return;
-
       if (processing) return;
       setError(null);
+
+      const nextApiKey = apiKey.trim();
+      const isOpenAiProvider = provider === "openai";
+
+      if (!isSafeWhisperBaseUrl(baseUrl)) {
+        setError("Please enter a valid base URL (http/https).");
+        return;
+      }
+
+      if (isOpenAiProvider && !nextApiKey) {
+        setError("API Key is required for OpenAI.");
+        return;
+      }
+
       setProcessing(true);
 
       try {
-        await validateApiKey(apiKey);
-        await setOpenAiApiKey(apiKey);
+        if (isOpenAiProvider) {
+          await validateApiKey(nextApiKey);
+        }
+
+        await setWhisperSettings({
+          provider,
+          baseUrl,
+          apiKey: nextApiKey || null,
+        });
 
         onClose();
         toast({
-          title: "✅ API Key successfully set!",
-          description: "Enjoy with Meeper.",
+          title: "✅ Settings successfully saved!",
+          description: "Whisper provider updated.",
         });
 
         window.dispatchEvent(new CustomEvent("_openai_api_key_entered"));
       } catch (err: any) {
         let msg = err.message;
         if (err instanceof InvalidApiKeyError) {
-          msg =
-            "Invalid API key. Please make sure your API key is still working properly.";
+          msg = "Invalid API key. Please make sure your API key is still working properly.";
         }
-
         setError(msg);
       }
 
       setProcessing(false);
     },
-    [setError, setProcessing, onClose, processing, toast],
+    [provider, apiKey, baseUrl, setError, setProcessing, onClose, processing, toast],
   );
+
+  const isOpenAiProvider = provider === "openai";
+  const baseUrlHint =
+    provider === "openai"
+      ? "OpenAI Whisper uses the default endpoint."
+      : provider === "typewhisper"
+        ? "TypeWhisper default: http://127.0.0.1:8978/v1 (request: /transcribe)."
+        : "Use an OpenAI-compatible base URL (typically ending with /v1).";
 
   return (
     <DialogContent
-      className="sm:max-w-[26rem]"
+      className="sm:max-w-[28rem]"
       onPointerDownOutside={(evt) => evt.preventDefault()}
     >
       <form onSubmit={handleSubmit}>
         <DialogHeader>
           <DialogTitle className="flex items-center mb-4">
             <OpenAIIcon className="h-5 w-auto mr-2" />
-            <span>Enter Your OpenAI API Key</span>
+            <span>Whisper Configuration</span>
           </DialogTitle>
           <DialogDescription asChild>
-            <div>
-              {errorState && (
-                <div className="mb-2">
-                  <h4 className="text-red-500">
-                    Error! Your current API key is functioning incorrectly.
-                  </h4>
-                </div>
-              )}
-
-              {!errorState && (
-                <ul className="list-disc pl-4 text-left space-y-2">
-                  <li>You need an OpenAI API Key to use Meeper.</li>
-                  <li>
-                    Your API Key is stored locally on your browser and
-                    encrypted, and never sent anywhere else.
-                  </li>
-                  <li>
-                    Meeper uses Whisper to transcribe & ChatGPT for summary.{" "}
-                    <a
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      href="https://openai.com/pricing"
-                      className="font-medium hover:underline"
-                    >
-                      Pricing related to OpenAI
-                    </a>
-                    .
-                  </li>
-                </ul>
-              )}
-
-              <div
-                className={classNames(
-                  "mt-4 rounded-lg border pb-4 px-4",
-                  errorState && "pt-4",
-                )}
-              >
-                <ul className="list-decimal pl-4">
-                  {!errorState && (
-                    <li>
-                      <span className="mr-1 text-primary">→</span>
-                      <Button
-                        variant="link"
-                        className="px-0 text-blue-500"
-                        asChild
-                      >
-                        <a
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          href="https://platform.openai.com/account/api-keys"
-                        >
-                          Get your API key from Open AI dashboard.
-                        </a>
-                      </Button>
-                    </li>
-                  )}
-                  <li>
-                    <div className="text-primary">
-                      {!errorState && (
-                        <AlertCircleIcon className="inline-flex items-center -mt-0.5 mr-1 h-3.5 w-3.5 text-yellow-500" />
-                      )}
-                      <span className="font-medium">
-                        Make sure you have your billing info added in{" "}
-                        <a
-                          className="text-blue-500 hover:underline"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          href="https://platform.openai.com/account/billing/overview"
-                        >
-                          OpenAI Billing
-                        </a>{" "}
-                        page.
-                      </span>{" "}
-                      Without billing info, your API key will not work.
-                    </div>
-                  </li>
-                  {errorState && (
-                    <li className="text-primary">
-                      <span className="font-medium">
-                        Try to{" "}
-                        <a
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          href="https://platform.openai.com/account/api-keys"
-                          className="text-blue-500 hover:underline"
-                        >
-                          create new Secret Key
-                        </a>
-                        .
-                      </span>{" "}
-                      Sometimes, you need to create a new one after adding
-                      billing information or in other cases.
-                    </li>
-                  )}
-                </ul>
-              </div>
-
-              {errorState && (
-                <div className="mt-1 text-xs">
-                  If you have already completed the steps described below, you
-                  can safely close this popup and continue using Meeper.
-                </div>
-              )}
+            <div className="text-left text-sm text-muted-foreground space-y-2">
+              <p>Configure how Meeper runs audio transcriptions.</p>
+              <p>
+                Choose OpenAI Whisper, TypeWhisper API, or a custom endpoint.
+              </p>
             </div>
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
-          <div className="grid w-full max-w-sm items-center gap-1.5">
-            <Label htmlFor="oi_apikey">API Key</Label>
+          <div className="grid w-full items-center gap-1.5">
+            <Label htmlFor="provider">Provider</Label>
+            <Select value={provider} onValueChange={handleProviderChange}>
+              <SelectTrigger id="provider">
+                <SelectValue placeholder="Select Provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI Whisper</SelectItem>
+                <SelectItem value="typewhisper">TypeWhisper API</SelectItem>
+                <SelectItem value="custom">Custom API</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid w-full items-center gap-1.5">
+            <Label htmlFor="baseUrl">Base URL</Label>
+            <Input
+              type="text"
+              id="baseUrl"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={getWhisperProviderDefaultBaseUrl(provider)}
+              disabled={isOpenAiProvider}
+            />
+            <p className="text-xs text-muted-foreground">{baseUrlHint}</p>
+          </div>
+
+          <div className="grid w-full items-center gap-1.5">
+            <Label htmlFor="oi_apikey">API Key {isOpenAiProvider ? "(Required)" : "(Optional)"}</Label>
             <Input
               type="password"
               id="oi_apikey"
-              name="apikey"
-              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={
+                isOpenAiProvider
+                  ? "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  : "Optional bearer token"
+              }
             />
             {error && <p className="text-sm text-red-500">{error}</p>}
           </div>
 
           {WEBSITE_URL && (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground mt-2">
               By clicking Save Changes, you agree to our{" "}
               <a
                 className="underline"
@@ -445,32 +441,34 @@ function ApiKeyDialogContent({
           </Button>
         </DialogFooter>
 
-        <Collapsible>
-          <div className="mt-4 text-center">
-            <Separator className="mb-2 w-full h-px bg-muted" />
+        {provider === "openai" && (
+          <Collapsible>
+            <div className="mt-4 text-center">
+              <Separator className="mb-2 w-full h-px bg-muted" />
 
-            <CollapsibleTrigger className="hover:underline" tabIndex={-1}>
-              API Key not working? Click Here.
-            </CollapsibleTrigger>
-          </div>
-          <CollapsibleContent>
-            <ul className="mt-2 list-disc pl-4 text-left space-y-4">
-              <li>
-                Make sure you have your billing info added in{" "}
-                <a
-                  className="text-blue-500 hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href="https://platform.openai.com/account/billing/overview"
-                >
-                  OpenAI Billing
-                </a>{" "}
-                page. Without billing info, your API key will not work.
-              </li>
-              <li>A ChatGPT Plus Subscription is not needed.</li>
-            </ul>
-          </CollapsibleContent>
-        </Collapsible>
+              <CollapsibleTrigger className="hover:underline" tabIndex={-1}>
+                API Key not working? Click Here.
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent>
+              <ul className="mt-2 list-disc pl-4 text-left space-y-4">
+                <li>
+                  Make sure you have your billing info added in{" "}
+                  <a
+                    className="text-blue-500 hover:underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    href="https://platform.openai.com/account/billing/overview"
+                  >
+                    OpenAI Billing
+                  </a>{" "}
+                  page. Without billing info, your API key will not work.
+                </li>
+                <li>A ChatGPT Plus Subscription is not needed.</li>
+              </ul>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </form>
     </DialogContent>
   );
