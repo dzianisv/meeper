@@ -7,7 +7,8 @@
     "build": "cross-env NODE_ENV=production node bundle",
     "ts": "tsc --pretty",
     "test:extension:load": "node scripts/test-extension-load.mjs",
-    "test:queue": "node scripts/test-promise-queue-drop.mjs"
+    "test:queue": "node scripts/test-promise-queue-drop.mjs",
+    "test:e2e:transcription": "node tests/e2e/transcription-faster-whisper.e2e.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.5.1",
