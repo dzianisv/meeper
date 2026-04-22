@@ -6,11 +6,11 @@ Meeper is an open-source browser extension that serves as your secretary for any
 
 ## Features
 
-- 🫧 Works seamlessly with your OpenAI account.
+- 🫧 Multiple transcription providers: OpenAI Whisper, TypeWhisper API, and custom OpenAI-compatible endpoints.
 
-- 🔐 Your API Key is securely stored locally on your browser, encrypted, and never transmitted elsewhere.
+- 🔐 Provider settings and API keys are securely stored in browser local storage (keys are encrypted at rest).
 
-- 🤖 Meeper utilizes Whisper for accurate transcriptions and ChatGPT for generating summaries.
+- 🤖 Meeper utilizes Whisper-compatible transcription APIs for transcripts and ChatGPT for generating summaries.
 
 - 💿 Speech detection feature optimizes API usage by activating only when speech sounds are detected, reducing up to 30% of resource consumption.
 
@@ -32,7 +32,12 @@ To get started, follow these steps:
 
 1. Install Meeper from the Chrome Web Store or your browser's extension marketplace.
 
-2. Upon installation, enter your OpenAI API Key in the extension settings. Rest assured, the key is securely stored on your local machine and never shared externally.
+2. Upon installation, open the extension settings and choose your transcription provider:
+   - **OpenAI Whisper**: default OpenAI endpoint and API key
+   - **TypeWhisper API**: local TypeWhisper endpoint (default `http://127.0.0.1:8978/v1`)
+   - **Custom API**: your own OpenAI-compatible base URL and optional API key
+
+   Provider settings are securely stored on your local machine and never shared externally.
 
 3. Launch Meeper using one of the following methods:
   - Press the configured hotkey combination.
