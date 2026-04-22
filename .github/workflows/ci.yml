@@ -62,7 +62,7 @@ jobs:
       - name: Install python deps for local ASR server
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install fastapi uvicorn python-multipart
+          python3 -m pip install fastapi uvicorn python-multipart faster-whisper
 
       - name: Install deps
         run: npm ci
@@ -71,4 +71,6 @@ jobs:
         run: npm run build
 
       - name: Run full transcription e2e against local server
+        env:
+          MEEPER_E2E_REQUIRE_REAL_FW: "1"
         run: npm run test:e2e:transcription

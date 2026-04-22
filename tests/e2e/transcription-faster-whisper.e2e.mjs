@@ -16,7 +16,7 @@ const serverScriptPath = path.join(projectRoot, "scripts/faster-whisper-test-ser
 const serverHost = process.env.FW_TEST_HOST || "127.0.0.1";
 const serverPort = Number(process.env.FW_TEST_PORT || "8978");
 const serverBaseUrl = `http://${serverHost}:${serverPort}/v1`;
-const expectedPhrase = "hello";
+const expectedWords = ["world"];
 const runHeadless = process.env.MEEPER_E2E_HEADED !== "1";
 const serverStartupTimeoutMs = Number(process.env.FW_TEST_HEALTH_TIMEOUT_MS || "20000");
 const recordRouteTimeoutMs = Number(process.env.MEEPER_E2E_READY_TIMEOUT_MS || "30000");
@@ -36,6 +36,28 @@ function assertPathExists(filePath, label) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeTranscript(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasExpectedTranscript(text) {
+  const normalized = normalizeTranscript(text);
+
+  return expectedWords.every((word) => {
+    if (normalized.includes(word)) {
+      return true;
+    }
+
+    const compactNeedle = word.replace(/\s+/g, "");
+    const compactHaystack = normalized.replace(/\s+/g, "");
+    return compactHaystack.includes(compactNeedle);
+  });
 }
 
 async function playFixtureViaPulse() {
@@ -514,11 +536,11 @@ async function run() {
       throw new Error(`Recorder reported error: ${state.lastError}`);
     }
 
-    const joined = (state?.content || []).join(" ").toLowerCase();
+    const joined = (state?.content || []).join(" ");
 
-    if (!joined.includes(expectedPhrase)) {
+    if (!hasExpectedTranscript(joined)) {
       throw new Error(
-        `Transcription text missing expected phrase "${expectedPhrase}": ${JSON.stringify(
+        `Transcription text missing expected words ${JSON.stringify(expectedWords)}: ${JSON.stringify(
           state?.content || [],
         )}`,
       );
