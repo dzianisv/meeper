@@ -27,6 +27,9 @@ jobs:
       - name: Create app build
         run: npm run build
 
+      - name: Run extension smoke test
+        run: xvfb-run -a npm run test:extension:load
+
       - name: Upload extension zip artifact
         uses: actions/upload-artifact@v4
         with:

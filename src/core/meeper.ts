@@ -133,6 +133,7 @@ export async function recordMeeper(
     const textPromise = retry(
       () =>
         requestWhisperOpenaiApi(audioFile, "transcriptions", {
+          provider: whisperSettings.provider,
           baseUrl: whisperSettings.baseUrl,
           apiKey,
           prompt: whisperPrompt,
@@ -140,7 +141,10 @@ export async function recordMeeper(
         }).catch((err: AxiosError) => {
           let newErr;
           try {
-            if (err.response?.status?.toString().startsWith("4")) {
+            if (
+              whisperSettings.provider === "openai" &&
+              err.response?.status?.toString().startsWith("4")
+            ) {
               const { error } = err.response.data as any;
 
               newErr = new NonWorkingApiKeyError(error.message);

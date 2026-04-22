@@ -12,7 +12,7 @@ import {
   useRef,
 } from "react";
 import classNames from "clsx";
-import { AlertTriangleIcon, AlertCircleIcon, Loader2Icon } from "lucide-react";
+import { AlertTriangleIcon, Loader2Icon } from "lucide-react";
 import { Separator } from "@radix-ui/react-separator";
 import { Button } from "./ui/button";
 import {
@@ -31,12 +31,15 @@ import {
   InvalidApiKeyError,
   NoApiKeyError,
   NonWorkingApiKeyError,
-  getOpenAiApiKey,
-  setOpenAiApiKey,
   validateApiKey,
 } from "../core/openaiApiKey";
-import { getWhisperSettings, setWhisperSettings, WhisperProviderMode } from "../core/whisperSettings";
-import { DEFAULT_WHISPER_BASE_URL } from "../lib/whisper/baseUrl";
+import {
+  getWhisperProviderDefaultBaseUrl,
+  getWhisperSettings,
+  setWhisperSettings,
+  WhisperProviderMode,
+} from "../core/whisperSettings";
+import { isSafeWhisperBaseUrl } from "../lib/whisper/baseUrl";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import {
   Collapsible,
@@ -67,7 +70,7 @@ export function useApiKeyState() {
   useEffect(() => {
     getWhisperSettings()
       .then((settings) => {
-        if (settings.provider === "selfHosted" || settings.apiKey) {
+        if (settings.provider !== "openai" || Boolean(settings.apiKey)) {
           setApiKeyEntered(true);
         }
       })
@@ -122,13 +125,13 @@ export function useNoApiKeyToast() {
                   <span>API key not set or invalid!</span>
                 </div>
               ) as any,
-              description: "You have to set OpenAI API Key to use Meeper.",
+              description: "Configure your Whisper provider and credentials to start transcribing.",
               action: (
                 <ToastAction
-                  altText="Set OpenAI API Key"
+                  altText="Configure Whisper"
                   onClick={() => setApiKeyDialogOpened("default")}
                 >
-                  Set API Key
+                  Configure
                 </ToastAction>
               ),
             };
@@ -239,17 +242,25 @@ function ApiKeyDialogContent({
 
   const [provider, setProvider] = useState<WhisperProviderMode>("openai");
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_WHISPER_BASE_URL);
+  const [baseUrl, setBaseUrl] = useState(
+    getWhisperProviderDefaultBaseUrl("openai"),
+  );
 
   useEffect(() => {
     getWhisperSettings().then((settings) => {
       setProvider(settings.provider);
       setApiKey(settings.apiKey || "");
-      setBaseUrl(settings.baseUrl || DEFAULT_WHISPER_BASE_URL);
+      setBaseUrl(
+        settings.baseUrl || getWhisperProviderDefaultBaseUrl(settings.provider),
+      );
     });
   }, []);
 
-  const errorState = state === "error";
+  const handleProviderChange = useCallback((nextProvider: WhisperProviderMode) => {
+    setProvider(nextProvider);
+    setBaseUrl(getWhisperProviderDefaultBaseUrl(nextProvider));
+    setError(null);
+  }, []);
 
   const handleSubmit = useCallback<FormEventHandler<HTMLFormElement>>(
     async (evt) => {
@@ -257,9 +268,16 @@ function ApiKeyDialogContent({
 
       if (processing) return;
       setError(null);
-      
-      const isLocal = provider === "selfHosted";
-      if (!isLocal && !apiKey) {
+
+      const nextApiKey = apiKey.trim();
+      const isOpenAiProvider = provider === "openai";
+
+      if (!isSafeWhisperBaseUrl(baseUrl)) {
+        setError("Please enter a valid base URL (http/https).");
+        return;
+      }
+
+      if (isOpenAiProvider && !nextApiKey) {
         setError("API Key is required for OpenAI.");
         return;
       }
@@ -267,20 +285,20 @@ function ApiKeyDialogContent({
       setProcessing(true);
 
       try {
-        if (!isLocal) {
-          await validateApiKey(apiKey);
+        if (isOpenAiProvider) {
+          await validateApiKey(nextApiKey);
         }
-        
+
         await setWhisperSettings({
           provider,
           baseUrl,
-          apiKey: apiKey || null,
+          apiKey: nextApiKey || null,
         });
 
         onClose();
         toast({
           title: "✅ Settings successfully saved!",
-          description: "Enjoy with Meeper.",
+          description: "Whisper provider updated.",
         });
 
         window.dispatchEvent(new CustomEvent("_openai_api_key_entered"));
@@ -297,6 +315,14 @@ function ApiKeyDialogContent({
     [provider, apiKey, baseUrl, setError, setProcessing, onClose, processing, toast],
   );
 
+  const isOpenAiProvider = provider === "openai";
+  const baseUrlHint =
+    provider === "openai"
+      ? "OpenAI Whisper uses the default endpoint."
+      : provider === "typewhisper"
+        ? "TypeWhisper default: http://127.0.0.1:8978/v1 (request: /transcribe)."
+        : "Use an OpenAI-compatible base URL (typically ending with /v1).";
+
   return (
     <DialogContent
       className="sm:max-w-[28rem]"
@@ -312,8 +338,7 @@ function ApiKeyDialogContent({
             <div className="text-left text-sm text-muted-foreground space-y-2">
               <p>Configure how Meeper runs audio transcriptions.</p>
               <p>
-                You can use the default OpenAI API or connect to your own
-                self-hosted Whisper instance.
+                Choose OpenAI Whisper, TypeWhisper API, or a custom endpoint.
               </p>
             </div>
           </DialogDescription>
@@ -321,44 +346,43 @@ function ApiKeyDialogContent({
         <div className="grid gap-4 py-4">
           <div className="grid w-full items-center gap-1.5">
             <Label htmlFor="provider">Provider</Label>
-            <Select value={provider} onValueChange={(val: WhisperProviderMode) => setProvider(val)}>
+            <Select value={provider} onValueChange={handleProviderChange}>
               <SelectTrigger id="provider">
                 <SelectValue placeholder="Select Provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="openai">OpenAI API</SelectItem>
-                <SelectItem value="selfHosted">Self-Hosted / Local</SelectItem>
+                <SelectItem value="openai">OpenAI Whisper</SelectItem>
+                <SelectItem value="typewhisper">TypeWhisper API</SelectItem>
+                <SelectItem value="custom">Custom API</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {(provider === "selfHosted" || provider === "openai") && (
-            <div className="grid w-full items-center gap-1.5">
-              <Label htmlFor="baseUrl">Base URL</Label>
-              <Input
-                type="text"
-                id="baseUrl"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.openai.com/v1"
-                disabled={provider === "openai"}
-              />
-              {provider === "selfHosted" && (
-                <p className="text-xs text-muted-foreground">
-                  The API must be compatible with OpenAI's audio transcription endpoints.
-                </p>
-              )}
-            </div>
-          )}
+          <div className="grid w-full items-center gap-1.5">
+            <Label htmlFor="baseUrl">Base URL</Label>
+            <Input
+              type="text"
+              id="baseUrl"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={getWhisperProviderDefaultBaseUrl(provider)}
+              disabled={isOpenAiProvider}
+            />
+            <p className="text-xs text-muted-foreground">{baseUrlHint}</p>
+          </div>
 
           <div className="grid w-full items-center gap-1.5">
-            <Label htmlFor="oi_apikey">API Key {provider === "selfHosted" && "(Optional)"}</Label>
+            <Label htmlFor="oi_apikey">API Key {isOpenAiProvider ? "(Required)" : "(Optional)"}</Label>
             <Input
               type="password"
               id="oi_apikey"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              placeholder={
+                isOpenAiProvider
+                  ? "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  : "Optional bearer token"
+              }
             />
             {error && <p className="text-sm text-red-500">{error}</p>}
           </div>

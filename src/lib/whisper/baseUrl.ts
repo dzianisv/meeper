@@ -1,6 +1,7 @@
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
 
 export const DEFAULT_WHISPER_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_TYPEWHISPER_BASE_URL = "http://127.0.0.1:8978/v1";
 
 export function isSafeWhisperBaseUrl(value: string) {
   try {
@@ -11,10 +12,13 @@ export function isSafeWhisperBaseUrl(value: string) {
   }
 }
 
-export function normalizeWhisperBaseUrl(baseUrl?: string | null) {
+export function normalizeWhisperBaseUrl(
+  baseUrl?: string | null,
+  fallbackBaseUrl: string = DEFAULT_WHISPER_BASE_URL,
+) {
   const value = baseUrl?.trim();
   if (!value || !isSafeWhisperBaseUrl(value)) {
-    return DEFAULT_WHISPER_BASE_URL;
+    return fallbackBaseUrl;
   }
 
   const parsed = new URL(value);

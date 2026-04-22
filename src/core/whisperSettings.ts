@@ -6,12 +6,13 @@ import {
 } from "./openaiApiKey";
 import {
   DEFAULT_WHISPER_BASE_URL,
+  DEFAULT_TYPEWHISPER_BASE_URL,
   normalizeWhisperBaseUrl,
 } from "../lib/whisper/baseUrl";
 
 const WHISPER_SETTINGS = "_whisper_settings";
 
-export type WhisperProviderMode = "openai" | "selfHosted";
+export type WhisperProviderMode = "openai" | "typewhisper" | "custom";
 
 export interface WhisperSettings {
   provider: WhisperProviderMode;
@@ -20,7 +21,7 @@ export interface WhisperSettings {
 }
 
 type WhisperSettingsStored = {
-  provider?: WhisperProviderMode;
+  provider?: WhisperProviderMode | "selfHosted";
   baseUrl?: string;
   apiKey?: string;
 };
@@ -31,7 +32,6 @@ export const getWhisperSettings = memoizeOne(async (): Promise<WhisperSettings> 
   );
 
   const parsed = (storedSettings ?? null) as WhisperSettingsStored | null;
-  const apiKey = await decryptApiKey(parsed?.apiKey);
   if (!isWhisperSettingsComplete(parsed)) {
     const legacyApiKey = await getOpenAiApiKey();
     return {
@@ -41,8 +41,12 @@ export const getWhisperSettings = memoizeOne(async (): Promise<WhisperSettings> 
     };
   }
 
-  const provider = parsed.provider;
-  const baseUrl = normalizeWhisperBaseUrl(parsed.baseUrl);
+  const provider = normalizeWhisperProvider(parsed.provider);
+  const baseUrl = normalizeWhisperBaseUrl(
+    parsed.baseUrl,
+    getWhisperProviderDefaultBaseUrl(provider),
+  );
+  const apiKey = await decryptApiKey(parsed.apiKey);
 
   if (provider === "openai") {
     const openAiApiKey = apiKey ?? (await getOpenAiApiKey());
@@ -80,7 +84,10 @@ export async function setWhisperSettings(settings: WhisperSettings | null) {
   await chrome.storage.local.set({
     [WHISPER_SETTINGS]: {
       provider: settings.provider,
-      baseUrl: normalizeWhisperBaseUrl(settings.baseUrl),
+      baseUrl: normalizeWhisperBaseUrl(
+        settings.baseUrl,
+        getWhisperProviderDefaultBaseUrl(settings.provider),
+      ),
       apiKey: encryptedApiKey,
     },
   });
@@ -97,21 +104,50 @@ async function decryptApiKey(encrypted?: string) {
 }
 
 function isWhisperProvider(mode?: string): mode is WhisperProviderMode {
-  return mode === "openai" || mode === "selfHosted";
+  return mode === "openai" || mode === "typewhisper" || mode === "custom";
+}
+
+function isWhisperProviderStored(
+  mode?: string,
+): mode is WhisperProviderMode | "selfHosted" {
+  return mode === "selfHosted" || isWhisperProvider(mode);
+}
+
+function normalizeWhisperProvider(
+  mode?: string,
+): WhisperProviderMode {
+  if (mode === "selfHosted") {
+    return "custom";
+  }
+
+  if (isWhisperProvider(mode)) {
+    return mode;
+  }
+
+  return "openai";
+}
+
+export function getWhisperProviderDefaultBaseUrl(provider: WhisperProviderMode) {
+  if (provider === "typewhisper") {
+    return DEFAULT_TYPEWHISPER_BASE_URL;
+  }
+
+  return DEFAULT_WHISPER_BASE_URL;
 }
 
 function isWhisperSettingsComplete(
   settings: WhisperSettingsStored | null,
 ): settings is {
-  provider: WhisperProviderMode;
+  provider: WhisperProviderMode | "selfHosted";
   baseUrl: string;
+  apiKey?: string;
 } {
   if (!settings) {
     return false;
   }
 
   return (
-    isWhisperProvider(settings.provider) &&
+    isWhisperProviderStored(settings.provider) &&
     typeof settings.baseUrl === "string" &&
     settings.baseUrl.trim().length > 0
   );
