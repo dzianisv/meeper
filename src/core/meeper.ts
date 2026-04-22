@@ -2,7 +2,11 @@ import { nanoid } from "nanoid";
 import { AxiosError } from "axios";
 import { Streams, captureAudio, mergeStreams } from "../lib/capture-audio";
 import { requestWhisperOpenaiApi } from "../lib/whisper/openaiApi";
-import { retry, promiseQueue } from "../lib/system";
+import {
+  createPendingOperationsTracker,
+  retry,
+  promiseQueue,
+} from "../lib/system";
 import { RecordType, TabInfo } from "./types";
 import { dbRecords, dbContents } from "./db";
 import { getLangCode, syncTabRecordState } from "./session";
@@ -26,6 +30,8 @@ export type MeeperState = {
   recordType: RecordType;
   recording: boolean;
   content: string[];
+  pendingTranscriptions: number;
+  lastError: string | null;
 };
 
 // TODO: Reimplement with MeeperState only. Avoid using both state and ref
@@ -69,9 +75,11 @@ export async function recordMeeper(
   ]);
 
   const withQueue = promiseQueue();
+  const transcriptionTracker = createPendingOperationsTracker();
   const content: string[] = [];
 
   let recording = false;
+  let lastError: string | null = null;
   let stopCaptureAudio: (() => void) | undefined;
   let checkTimeout: ReturnType<typeof setTimeout>;
 
@@ -86,6 +94,8 @@ export async function recordMeeper(
       recordType: getCurrentRecordType(),
       recording,
       content,
+      pendingTranscriptions: transcriptionTracker.getPendingCount(),
+      lastError,
     });
 
     syncTabRecordState({
@@ -106,8 +116,32 @@ export async function recordMeeper(
       .catch(console.warn);
   };
 
+  const setLastError = (err: unknown) => {
+    const fallback = "Transcription failed. Check extension/background logs.";
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String((err as { message?: unknown }).message ?? fallback)
+        : fallback;
+
+    lastError = message;
+    dispatch();
+  };
+
+  const clearLastError = () => {
+    if (!lastError) {
+      return;
+    }
+
+    lastError = null;
+    dispatch();
+  };
+
   const onAudio = async (audioFile: File) => {
+    const finishTrackedOperation = transcriptionTracker.begin();
+    dispatch();
+
     const whisperSettings = await getWhisperSettings().catch(async (err) => {
+      setLastError(err);
       onError(err);
 
       if (err instanceof NoApiKeyError) {
@@ -116,12 +150,19 @@ export async function recordMeeper(
 
       return null;
     });
-    if (!whisperSettings) return;
+    if (!whisperSettings) {
+      finishTrackedOperation();
+      dispatch();
+      return;
+    }
 
     const apiKey = whisperSettings?.apiKey;
 
     if (whisperSettings.provider === "openai" && !apiKey) {
+      setLastError(new Error("OpenAI provider requires API key"));
       await dbRecords.update(recordId, { lastSyncAt: Date.now() });
+      finishTrackedOperation();
+      dispatch();
       return;
     }
 
@@ -159,8 +200,13 @@ export async function recordMeeper(
 
     withQueue(async () => {
       try {
-        const text = await textPromise.catch(onError);
+        const text = await textPromise.catch((err) => {
+          setLastError(err);
+          return onError(err);
+        });
         if (!text) return;
+
+        clearLastError();
 
         const lastItem = content[content.length - 1]?.trim();
 
@@ -182,7 +228,11 @@ export async function recordMeeper(
           dbContents.update(recordId, { content }),
         ]).catch(console.error);
       } catch (err) {
+        setLastError(err);
         console.error(err);
+      } finally {
+        finishTrackedOperation();
+        dispatch();
       }
     });
   };
@@ -209,6 +259,11 @@ export async function recordMeeper(
 
   const stop = () => {
     pause();
+
+    withQueue(() => transcriptionTracker.waitForIdle()).catch((err) => {
+      console.error(err);
+      setLastError(err);
+    });
 
     clearTimeout(checkTimeout);
     stopStreamTracks(stream);

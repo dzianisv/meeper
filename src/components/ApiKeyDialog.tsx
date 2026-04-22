@@ -247,13 +247,17 @@ function ApiKeyDialogContent({
   );
 
   useEffect(() => {
-    getWhisperSettings().then((settings) => {
-      setProvider(settings.provider);
-      setApiKey(settings.apiKey || "");
-      setBaseUrl(
-        settings.baseUrl || getWhisperProviderDefaultBaseUrl(settings.provider),
-      );
-    });
+    getWhisperSettings()
+      .then((settings) => {
+        setProvider(settings.provider);
+        setApiKey(settings.apiKey || "");
+        setBaseUrl(
+          settings.baseUrl || getWhisperProviderDefaultBaseUrl(settings.provider),
+        );
+      })
+      .catch((err) => {
+        setError(err?.message || "Failed to load Whisper settings.");
+      });
   }, []);
 
   const handleProviderChange = useCallback((nextProvider: WhisperProviderMode) => {

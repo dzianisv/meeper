@@ -18,6 +18,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_EXT_PATH = path.join(PROJECT_ROOT, 'ext');
 const SERVICE_WORKER_TIMEOUT_MS = 15000;
 const POPUP_TIMEOUT_MS = 15000;
+const MAIN_PAGE_TIMEOUT_MS = 15000;
 
 function getExtensionIdFromUrl(url) {
   const match = url.match(/^chrome-extension:\/\/([^/]+)\//);
@@ -77,12 +78,43 @@ async function testExtensionLoad(extPath) {
     console.log(`Loading: ${popupUrl}`);
 
     const popupPage = await browser.newPage();
+    const popupErrors = [];
+    popupPage.on('pageerror', (err) => {
+      popupErrors.push(err?.message || String(err));
+    });
 
     try {
       await popupPage.goto(popupUrl, { waitUntil: 'domcontentloaded', timeout: POPUP_TIMEOUT_MS });
       await popupPage.waitForSelector('#root', { timeout: POPUP_TIMEOUT_MS });
+
+      if (popupErrors.length) {
+        throw new Error(`Popup runtime errors: ${popupErrors.join(' | ')}`);
+      }
     } finally {
       await popupPage.close();
+    }
+
+    // Open main route used in production flows and ensure no runtime errors.
+    const welcomePage = await browser.newPage();
+    const welcomeErrors = [];
+    welcomePage.on('pageerror', (err) => {
+      welcomeErrors.push(err?.message || String(err));
+    });
+
+    try {
+      const welcomeUrl = `chrome-extension://${extensionId}/main.html#/welcome`;
+      await welcomePage.goto(welcomeUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: MAIN_PAGE_TIMEOUT_MS,
+      });
+      await welcomePage.waitForSelector('#root', { timeout: MAIN_PAGE_TIMEOUT_MS });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      if (welcomeErrors.length) {
+        throw new Error(`Main welcome runtime errors: ${welcomeErrors.join(' | ')}`);
+      }
+    } finally {
+      await welcomePage.close();
     }
 
     console.log('\n========================================');

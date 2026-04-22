@@ -28,6 +28,8 @@ export default function RecordPage({
     recording = false,
     content = [],
     recordType = initialRecordType,
+    pendingTranscriptions = 0,
+    lastError = null,
   } = meeperState ?? {};
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -62,11 +64,11 @@ export default function RecordPage({
 
   useEffect(() => {
     // Handle stop
-    if (meeper && !isActive) {
+    if (meeper && !isActive && pendingTranscriptions === 0) {
       setClosing(true);
       setTimeout(() => window.close(), 1_500);
     }
-  }, [meeper, isActive]);
+  }, [meeper, isActive, pendingTranscriptions]);
 
   useEffect(() => meeperRef.current?.stop, []);
 
@@ -102,6 +104,8 @@ export default function RecordPage({
         meeper={meeper}
         recordType={recordType}
         recording={recording}
+        pendingTranscriptions={pendingTranscriptions}
+        lastError={lastError}
       />
 
       <main

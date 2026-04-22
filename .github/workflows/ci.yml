@@ -24,6 +24,9 @@ jobs:
       - name: Check TypeScript
         run: npm run ts
 
+      - name: Run queue behavior test
+        run: npm run test:queue
+
       - name: Create app build
         run: npm run build
 

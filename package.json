@@ -6,7 +6,8 @@
     "start": "cross-env NODE_ENV=development node bundle",
     "build": "cross-env NODE_ENV=production node bundle",
     "ts": "tsc --pretty",
-    "test:extension:load": "node scripts/test-extension-load.mjs"
+    "test:extension:load": "node scripts/test-extension-load.mjs",
+    "test:queue": "node scripts/test-promise-queue-drop.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.5.1",

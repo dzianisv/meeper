@@ -20,10 +20,14 @@ export default function RecordHeader({
   meeper,
   recordType,
   recording,
+  pendingTranscriptions,
+  lastError,
 }: {
   meeper: MeeperRecorder;
   recordType: RecordType;
   recording: boolean;
+  pendingTranscriptions: number;
+  lastError: string | null;
 }) {
   const [langCode, setLangCode] = useChromeStorageSession(LANGCODE, "auto");
   const [micToggling, setMicToggling] = useState(false);
@@ -35,7 +39,10 @@ export default function RecordHeader({
       match([recordType, recording, streamActive])
         .with(
           [P.any, P.any, false],
-          () => "Transcribing finished. Saving and closing..."
+          () =>
+            pendingTranscriptions > 0
+              ? "Finishing pending transcription..."
+              : "Transcribing finished. Saving and closing..."
         )
         .with([P.any, false, P.any], () => "Paused. Click button to continue")
         .with(
@@ -47,7 +54,7 @@ export default function RecordHeader({
           () => "Transcribing using tab audio..."
         )
         .otherwise(() => ""),
-    [recordType, recording, streamActive]
+    [recordType, recording, streamActive, pendingTranscriptions]
   );
 
   /**
@@ -103,6 +110,19 @@ export default function RecordHeader({
 
         {statusText}
       </span>
+
+      {pendingTranscriptions > 0 && (
+        <span className="ml-2 text-xs text-amber-700 font-medium">
+          Pending chunks: {pendingTranscriptions}
+        </span>
+      )}
+
+      {lastError && (
+        <span className="ml-2 text-xs text-red-600 font-medium truncate max-w-[24rem]" title={lastError}>
+          Error: {lastError}
+        </span>
+      )}
+
       <div className="flex-1" />
 
       <Button
